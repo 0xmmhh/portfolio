@@ -1,0 +1,1247 @@
+<!doctype html>
+<html lang="en" data-theme="ivory">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Maciej Hawrot — software engineer building backends and terminal tools</title>
+  <meta name="description" content="Maciej Hawrot (0xmmhh) — software engineer, CS student. C# / .NET, React, TypeScript. Author of graftui, an animated git TUI. Open to work remote or in Wrocław, Poland." />
+  <meta name="theme-color" content="#0e0d0b" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230e0d0b'/%3E%3Ctext x='5' y='23' font-family='monospace' font-size='18' fill='%23f1e7cf'%3E&gt;_%3C/text%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&display=swap" />
+  <script>
+    // restore the saved theme before first paint (no flash)
+    try {
+      var saved = localStorage.getItem("0xmmhh-theme");
+      if (saved === "ivory" || saved === "paper") {
+        document.documentElement.dataset.theme = saved;
+      }
+    } catch (e) {}
+  </script>
+  <style>
+
+  /* ============================================================================
+     TERMINAL THEME SYSTEM
+     Two themes, switched via [data-theme] on <html>:
+       ivory    — dark terminal      (default)
+       paper  — light "printout"
+     Only CSS variables change; components never hard-code colors.
+     ============================================================================ */
+
+  :root,
+  :root[data-theme="ivory"] {
+    --bg: #0e0d0b;
+    --panel: #151412;
+    --panel-2: #1b1916;
+    --line: #2e2b25;
+    --line-strong: #4a453b;
+    --fg: #d9d3c3;
+    --dim: #8f887a;
+    --accent: #f1e7cf; /* ivory */
+    --accent-2: #d8a657; /* muted gold, used sparingly */
+    --accent-ink: #14110a;
+    --sel-bg: rgba(241, 231, 207, 0.2);
+    --invert-bg: #f1e7cf;
+    --invert-fg: #14110a;
+    --scan: rgba(255, 240, 210, 0.025);
+    color-scheme: dark;
+  }
+
+  :root[data-theme="paper"] {
+    --bg: #f4f0e4;
+    --panel: #eae6d7;
+    --panel-2: #e1ddcd;
+    --line: #c9c4b0;
+    --line-strong: #a9a48e;
+    --fg: #2c2a21;
+    --dim: #6f6b5a;
+    --accent: #0a6a9e; /* deep print blue */
+    --accent-2: #a34a08; /* rust amber */
+    --accent-ink: #f4f0e4;
+    --sel-bg: rgba(10, 106, 158, 0.18);
+    --invert-bg: #2c2a21;
+    --invert-fg: #f4f0e4;
+    --scan: rgba(44, 42, 33, 0.035);
+    color-scheme: light;
+  }
+
+  /* ============================================================================
+     BASE
+     ============================================================================ */
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular,
+      Menlo, Consolas, monospace;
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* faint CRT scanline texture — a repeating pattern, not a gradient wash */
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent 0 3px,
+      var(--scan) 3px 4px
+    );
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background: var(--sel-bg);
+    color: var(--fg);
+  }
+
+  /* themed scrollbar inside terminal panes + page */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  :focus-visible {
+    outline: 2px dashed var(--accent);
+    outline-offset: 3px;
+    border-radius: 0;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .skip-link {
+    position: fixed;
+    top: -3rem;
+    left: 0.75rem;
+    z-index: 100;
+    background: var(--invert-bg);
+    color: var(--invert-fg);
+    padding: 0.5rem 1rem;
+    text-decoration: none;
+    font-size: 0.8rem;
+    transition: top 120ms steps(2, end);
+  }
+  .skip-link:focus-visible {
+    top: 0.75rem;
+  }
+
+  /* blinking block cursor — motion, but strictly one gait */
+  @keyframes caret-blink {
+    0%, 49% { opacity: 1; }
+    50%, 100% { opacity: 0; }
+  }
+  .caret {
+    display: inline-block;
+    width: 0.62ch;
+    height: 1.05em;
+    transform: translateY(0.14em);
+    background: var(--accent);
+    animation: caret-blink 1.1s steps(1) infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .caret {
+      animation: none;
+    }
+  }
+
+  /* ============================================================================
+     PAGE SHELL
+     ============================================================================ */
+
+  .page {
+    max-width: 72rem;
+    margin-inline: auto;
+    padding-inline: clamp(0.75rem, 3vw, 2rem);
+  }
+
+  /* ============================================================================
+     TOP BAR — looks like a menu / tab row, not a navbar
+     ============================================================================ */
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(3px);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-inner {
+    max-width: 72rem;
+    margin-inline: auto;
+    padding: 0.55rem clamp(0.75rem, 3vw, 2rem);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem 1.25rem;
+    flex-wrap: wrap;
+  }
+
+  .crumb {
+    text-decoration: none;
+    color: var(--dim);
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+  .crumb b {
+    color: var(--fg);
+    font-weight: 700;
+  }
+  .crumb .branch {
+    color: var(--accent);
+  }
+
+  .tabs {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    margin-left: auto;
+  }
+  .tab {
+    appearance: none;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--dim);
+    font: inherit;
+    font-size: 0.78rem;
+    padding: 0.3rem 0.55rem;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    border-radius: 0;
+  }
+  .tab .kbd {
+    color: var(--accent-2);
+    margin-right: 0.35ch;
+  }
+  .tab:hover {
+    color: var(--accent);
+    border-color: var(--line);
+  }
+  .tab[aria-current="true"] {
+    color: var(--accent);
+    background: var(--panel-2);
+    border-color: var(--line-strong);
+  }
+
+  .theme-btn {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--line-strong);
+    color: var(--fg);
+    font: inherit;
+    font-size: 0.78rem;
+    padding: 0.3rem 0.6rem;
+    cursor: pointer;
+    border-radius: 0;
+    white-space: nowrap;
+  }
+  .theme-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .theme-btn .kbd {
+    color: var(--accent-2);
+    margin-right: 0.35ch;
+  }
+
+  /* ============================================================================
+     ASCII BANNER (hero)
+     ============================================================================ */
+
+  .hero {
+    padding: clamp(1.5rem, 5vh, 3.25rem) 0 2.5rem;
+  }
+  .pre-banner {
+    margin: 0;
+    font-family: inherit;
+    font-weight: 800;
+    font-size: clamp(0.44rem, 3.45vw, 1.32rem);
+    line-height: 1.18;
+    letter-spacing: 0;
+    white-space: pre;
+    overflow: hidden;
+    user-select: none;
+  }
+  .pre-banner .b-name {
+    color: var(--fg);
+  }
+  .pre-banner .b-surname {
+    color: var(--accent);
+  }
+
+  .hero-meta {
+    margin-top: 1rem;
+    color: var(--dim);
+    font-size: 0.8rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.5ch;
+  }
+  .hero-meta .ok {
+    color: var(--accent);
+  }
+
+  .typed-line {
+    margin-top: 1.4rem;
+    min-height: 1.6em;
+    cursor: pointer; /* click = skip typing */
+    border: 0;
+    background: none;
+    padding: 0;
+    font: inherit;
+    font-size: clamp(0.95rem, 2.4vw, 1.25rem);
+    font-weight: 500;
+    color: var(--fg);
+    text-align: left;
+    display: block;
+    width: 100%;
+  }
+  .typed-line .prompt-sym {
+    color: var(--accent);
+  }
+  .typed-line:hover .skip-hint {
+    opacity: 1;
+  }
+  .skip-hint {
+    font-size: 0.65rem;
+    color: var(--dim);
+    border: 1px solid var(--line);
+    padding: 0.1rem 0.45rem;
+    margin-left: 1ch;
+    opacity: 0;
+    transition: opacity 120ms linear;
+    vertical-align: 0.2em;
+  }
+
+  .hero-ctas {
+    margin-top: 1.6rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+  }
+
+  /* bracket button — used for links and actions */
+  .btn {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5ch;
+    font: inherit;
+    font-size: 0.85rem;
+    color: var(--fg);
+    background: transparent;
+    border: 1px solid var(--line-strong);
+    padding: 0.45rem 0.85rem;
+    text-decoration: none;
+    cursor: pointer;
+    border-radius: 0;
+    white-space: nowrap;
+  }
+  .btn::before { content: "["; color: var(--dim); }
+  .btn::after { content: "]"; color: var(--dim); }
+  .btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .btn:hover::before,
+  .btn:hover::after { color: var(--accent); }
+  .btn--solid {
+    background: var(--invert-bg);
+    border-color: var(--invert-bg);
+    color: var(--invert-fg);
+    font-weight: 700;
+  }
+  .btn--solid::before, .btn--solid::after { color: var(--invert-fg); opacity: 0.6; }
+  .btn--solid:hover { filter: none; opacity: 0.92; color: var(--invert-fg); border-color: var(--invert-bg); }
+
+  /* ============================================================================
+     SECTION HEADING — "## projects" with a box-drawing rule
+     ============================================================================ */
+
+  .section {
+    padding: 2.25rem 0 2.75rem;
+    scroll-margin-top: 4.5rem;
+  }
+  .rule {
+    display: flex;
+    align-items: baseline;
+    gap: 1.5ch;
+    margin-bottom: 1.5rem;
+    color: var(--dim);
+  }
+  .rule h2 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--fg);
+    margin: 0;
+    white-space: nowrap;
+  }
+  .rule h2 .hash {
+    color: var(--accent);
+  }
+  .rule .fill {
+    flex: 1 1 auto;
+    overflow: hidden;
+    white-space: nowrap;
+    color: var(--line-strong);
+    letter-spacing: -0.05em;
+    user-select: none;
+  }
+  .rule .secno {
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
+
+  /* ============================================================================
+     TUI FRAME — characters for corners, 1px borders on the edges.
+     Renders exactly like ┌─ title ─────┐ at any viewport width.
+     ============================================================================ */
+
+  .tui-frame {
+    position: relative;
+    border: 1px solid var(--line-strong);
+    background: var(--panel);
+    padding: 1.4rem 1.25rem 1.15rem;
+    border-radius: 0;
+  }
+  .tui-frame--double {
+    border: 3px double var(--line-strong);
+  }
+  .fc {
+    position: absolute;
+    color: var(--line-strong);
+    font-size: 1rem;
+    line-height: 1;
+    background: var(--bg);
+    padding: 0 1px;
+    user-select: none;
+    pointer-events: none;
+  }
+  .fc-tl { top: -0.62em; left: -0.3ch; }
+  .fc-tr { top: -0.62em; right: -0.3ch; }
+  .fc-bl { bottom: -0.68em; left: -0.3ch; }
+  .fc-br { bottom: -0.68em; right: -0.3ch; }
+
+  .tui-frame__title {
+    position: absolute;
+    top: 0;
+    left: 1.1rem;
+    transform: translateY(-55%);
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.9ch;
+    background: var(--bg);
+    padding: 0 0.6ch;
+    margin: 0;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--accent);
+    white-space: nowrap;
+    max-width: calc(100% - 2.2rem);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tui-frame__title .ff {
+    color: var(--dim);
+    font-weight: 400;
+    overflow: hidden;
+  }
+  .tui-frame__corner-right {
+    position: absolute;
+    top: 0;
+    right: 1rem;
+    transform: translateY(-55%);
+    background: var(--bg);
+    padding: 0 0.5ch;
+    color: var(--dim);
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+
+  /* ============================================================================
+     PROJECTS
+     ============================================================================ */
+
+  .projects-grid {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr;
+    gap: 1.5rem;
+    align-items: stretch;
+  }
+  .project-stack {
+    display: grid;
+    gap: 1.5rem;
+    align-content: start;
+  }
+  @media (max-width: 900px) {
+    .projects-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .pane-tagline {
+    color: var(--dim);
+    font-size: 0.78rem;
+    margin: 0 0 0.65rem;
+  }
+  .pane-desc {
+    margin: 0 0 0.75rem;
+    font-size: 0.85rem;
+  }
+  .pane-bullets {
+    list-style: none;
+    margin: 0 0 0.85rem;
+    padding: 0;
+    font-size: 0.78rem;
+    color: var(--dim);
+    display: grid;
+    gap: 0.3rem;
+  }
+  .pane-bullets li::before {
+    content: "· ";
+    color: var(--accent);
+  }
+
+  .chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-bottom: 0.75rem;
+  }
+  .chip {
+    font-size: 0.68rem;
+    color: var(--accent-2);
+    border: 1px solid var(--line);
+    padding: 0.14rem 0.5ch;
+    white-space: nowrap;
+  }
+
+  .pane-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    flex-wrap: wrap;
+    border-top: 1px dashed var(--line);
+    padding-top: 0.6rem;
+    font-size: 0.72rem;
+    color: var(--dim);
+  }
+  .repo-link {
+    color: var(--accent);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .repo-link:hover { text-decoration: underline; }
+  .status-dot { color: var(--accent); }
+
+  /* ============================================================================
+     ABOUT
+     ============================================================================ */
+
+  .about-grid {
+    display: grid;
+    grid-template-columns: 1.35fr 1fr;
+    gap: 1.75rem;
+  }
+  @media (max-width: 860px) {
+    .about-grid { grid-template-columns: 1fr; }
+  }
+  .about-grid p { margin: 0 0 0.9rem; max-width: 62ch; }
+  .facts {
+    margin: 0;
+    font-size: 0.78rem;
+  }
+  .fact-row {
+    display: grid;
+    grid-template-columns: 10ch 1fr;
+    gap: 1.5ch;
+    padding: 0.35rem 0;
+    border-bottom: 1px dashed var(--line);
+  }
+  .fact-row:last-child { border-bottom: 0; }
+  .fact-row dt { color: var(--dim); margin: 0; }
+  .fact-row dd { margin: 0; color: var(--fg); }
+  .fact-row .acc { color: var(--accent); }
+
+  /* ============================================================================
+     SKILLS
+     ============================================================================ */
+
+  .skills-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+  }
+  @media (max-width: 900px) {
+    .skills-grid { grid-template-columns: 1fr; }
+  }
+  .lang-row {
+    margin-top: 1rem;
+    font-size: 0.78rem;
+    color: var(--dim);
+    border-top: 1px dashed var(--line);
+    padding-top: 0.75rem;
+    display: flex;
+    gap: 1.5ch 3ch;
+    flex-wrap: wrap;
+  }
+  .lang-row b { color: var(--fg); font-weight: 700; }
+
+  /* ============================================================================
+     CONTACT
+     ============================================================================ */
+
+  .contact-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.75rem;
+  }
+  @media (max-width: 860px) {
+    .contact-grid { grid-template-columns: 1fr; }
+  }
+  .vcard {
+    margin: 0;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    padding: 0.8rem 1rem;
+    font-size: 0.78rem;
+    line-height: 1.9;
+  }
+  .vcard .k { color: var(--dim); display: inline-block; width: 8ch; }
+  .vcard .v { color: var(--fg); }
+  .vcard .v a { color: var(--accent); text-decoration: none; }
+  .vcard .v a:hover { text-decoration: underline; }
+
+  .contact-list {
+    list-style: none;
+    margin: 0 0 1rem;
+    padding: 0;
+    display: grid;
+    gap: 0.5rem;
+  }
+  .contact-list a {
+    display: flex;
+    align-items: baseline;
+    gap: 1ch;
+    text-decoration: none;
+    color: var(--fg);
+    border: 1px solid var(--line);
+    padding: 0.55rem 0.75rem;
+    font-size: 0.82rem;
+  }
+  .contact-list a:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .contact-list .arrow { color: var(--dim); margin-left: auto; }
+  .contact-list a:hover .arrow { color: var(--accent); }
+
+  .avail {
+    color: var(--dim);
+    font-size: 0.75rem;
+  }
+  .avail .dot { color: var(--accent); }
+  .contact-list li.email-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: stretch;
+  }
+  .contact-list li.email-row a { flex: 1; min-width: 0; }
+  .copy-btn {
+    flex: 0 0 auto;
+    font-size: 0.72rem;
+    align-self: center;
+  }
+
+  /* ============================================================================
+     STATUS BAR FOOTER
+     ============================================================================ */
+
+  .statusbar {
+    background: var(--invert-bg);
+    color: var(--invert-fg);
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+  .statusbar-inner {
+    max-width: 72rem;
+    margin-inline: auto;
+    padding: 0.35rem clamp(0.75rem, 3vw, 2rem);
+    display: flex;
+    gap: 1ch 2ch;
+    align-items: baseline;
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+  .statusbar a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .statusbar a:hover { text-decoration: underline; }
+  .sb-seg { white-space: nowrap; }
+  .sb-sep { opacity: 0.45; }
+  .to-top {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    padding: 0;
+  }
+  .to-top:hover { text-decoration: underline; }
+
+  /* ============================================================================
+     NARROW SCREENS (< 560px) — frames reflow, chrome shrinks
+     ============================================================================ */
+
+  @media (max-width: 560px) {
+    .tui-frame { padding: 1.15rem 0.85rem 0.95rem; }
+    .tui-frame__corner-right { display: none; }
+    .tabs { margin-left: 0; }
+    .topbar-inner { gap: 0.4rem 0.75rem; padding-block: 0.45rem; }
+    .crumb { display: none; } /* keep the tab row pure on phones */
+    .rule .secno { display: none; }
+  }
+
+  /* print: paper it for real */
+  @media print {
+    .topbar, .hero-ctas, .prompt-wrap, .replay-btn, .skip-link { display: none; }
+    body { background: #fff; color: #000; background-image: none; }
+  }
+
+/* ============================================================================
+   ADDITIONS (plain-HTML version)
+   ============================================================================ */
+
+/* graftui demo gif */
+.gif-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem 1rem;
+  flex-wrap: wrap;
+  margin: 0 0 0.5rem;
+}
+.gif-head h4 {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--dim);
+}
+.gif-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.gif-tab {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--dim);
+  font: inherit;
+  font-size: 0.68rem;
+  padding: 0.15rem 0.6ch;
+  cursor: pointer;
+  border-radius: 0;
+}
+.gif-tab:hover,
+.gif-tab[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.typed-line {
+    margin: 0;
+    cursor: default;
+    font-size: clamp(2rem, 7vw, 3.6rem);
+    font-weight: 800;
+    line-height: 1.15;
+  }
+  .demo {
+  display: block;
+  margin-bottom: 1.25rem;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  background: #000;
+}
+.demo-caption {
+  margin: 0.5rem 0 0.85rem;
+  font-size: 0.72rem;
+  color: var(--dim);
+}
+.demo-caption .cmd-sym { color: var(--accent); }
+
+.snippet {
+  margin: 0 0 0.85rem;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  padding: 0.6rem 0.85rem;
+  font-size: 0.74rem;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+}
+.snippet .p { color: var(--accent); }
+.snippet .c { color: var(--dim); }
+
+.pane-sub {
+  margin: 1rem 0 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--dim);
+}
+.pane-desc a, .about-grid a { color: var(--accent); }
+
+/* homelab */
+.lab-facts { margin-bottom: 0.85rem; }
+.lab-facts .fact-row { grid-template-columns: 9ch 1fr; }
+
+/* skills: plain tag lists, no progress bars */
+.skills-grid .chip-row { margin: 0; gap: 0.45rem; }
+.skills-grid .chip {
+  font-size: 0.8rem;
+  color: var(--fg);
+  padding: 0.25rem 0.8ch;
+}
+
+/* dark / light switch: two square segments, the active one inverted */
+.theme-btn { display: inline-flex; align-items: baseline; gap: 0; padding: 0.2rem 0.4rem 0.2rem 0.6rem; }
+.theme-btn .seg { padding: 0.1rem 0.7ch; color: var(--dim); border: 1px solid transparent; }
+.theme-btn .seg.on { background: var(--invert-bg); color: var(--invert-fg); font-weight: 700; }
+.theme-btn .kbd { margin-right: 0.9ch; }
+
+/* contact: split frame */
+.split { display: grid; grid-template-columns: 1.4fr 1fr; gap: 2rem; align-items: center; }
+@media (max-width: 760px) { .split { grid-template-columns: 1fr; } }
+.big-mail { font-size: clamp(1.1rem, 3.4vw, 1.9rem); font-weight: 700; color: var(--fg); text-decoration: none; word-break: break-all; }
+.split .btn-row { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 1rem; }
+.link-stack { display: grid; gap: 0.5rem; }
+.link-stack a {
+  display: flex; gap: 1ch; align-items: baseline; text-decoration: none; color: var(--fg);
+  border: 1px solid var(--line); padding: 0.6rem 0.8rem; font-size: 0.85rem;
+}
+.link-stack a:hover { border-color: var(--accent); color: var(--accent); }
+.link-stack .arrow { margin-left: auto; color: var(--dim); }
+
+/* homelab cards */
+.stack-col { display: grid; gap: 1.5rem; align-content: start; }
+.tree {
+  margin: 0 0 0.85rem; background: var(--panel-2); border: 1px solid var(--line);
+  padding: 0.7rem 0.9rem; font-size: 0.74rem; line-height: 1.6; overflow-x: auto; white-space: pre;
+}
+.tree .a { color: var(--accent); }
+.tree .d { color: var(--dim); }
+
+/* about: aligned label column; "currently" is the headline fact */
+.about-grid .fact-row { grid-template-columns: 7rem 1fr; align-items: baseline; }
+.about-grid .fact-row dt { font-size: 0.78rem; }
+.fact-row--lead { padding: 0.5rem 0; }
+.fact-row--lead dd { font-size: 1.05rem; font-weight: 700; color: var(--fg); }
+
+.host-line {
+  margin: 0 0 0.85rem; background: var(--panel-2); border: 1px solid var(--line);
+  padding: 0.55rem 0.85rem; font-size: 0.74rem; color: var(--dim);
+}
+.host-line .a { color: var(--accent); font-weight: 700; }
+.pane-bullets b { color: var(--fg); font-weight: 700; }
+.pane-bullets ul { list-style: none; margin: 0.35rem 0 0.3rem 1.5ch; padding: 0; display: grid; gap: 0.25rem; }
+.pane-bullets ul li::before { content: "– "; color: var(--dim); }
+.pane-bullets > li { margin-bottom: 0.35rem; }
+
+/* skills: label column + tags */
+.skills-rows .fact-row { grid-template-columns: 7rem 1fr; align-items: baseline; padding: 0.7rem 0; }
+.skills-rows .chip-row { margin: 0; gap: 0.45rem; }
+.skills-rows .chip { font-size: 0.8rem; color: var(--fg); padding: 0.25rem 0.8ch; }
+@media (max-width: 560px) { .skills-rows .fact-row { grid-template-columns: 1fr; gap: 0.4rem; } }
+
+@media (min-width: 901px) {
+  .skills-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media print {
+  .gif-tabs { display: none; }
+}
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">skip to content</a>
+
+  <!-- top bar -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="crumb" href="#top" aria-label="back to top"><b>~/portfolio</b> <span class="branch">(main)</span></a>
+      <nav class="tabs" aria-label="Sections">
+        <a class="tab" href="#about" data-section="about"><span class="kbd" aria-hidden="true">1</span>[about]</a>
+        <a class="tab" href="#projects" data-section="projects"><span class="kbd" aria-hidden="true">2</span>[projects]</a>
+        <a class="tab" href="#skills" data-section="skills"><span class="kbd" aria-hidden="true">3</span>[skills]</a>
+        <a class="tab" href="#contact" data-section="contact"><span class="kbd" aria-hidden="true">4</span>[contact]</a>
+      </nav>
+      <button type="button" class="theme-btn" id="theme-btn" title="switch dark / light (t)" aria-label="Switch to light theme">
+        <span class="kbd" aria-hidden="true">t</span><span class="seg" data-seg="ivory">dark</span><span class="seg" data-seg="paper">light</span>
+      </button>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- hero -->
+    <div class="page" id="top">
+      <section class="hero" aria-label="Introduction">
+        <h1 class="typed-line" id="typed-line" aria-label="Maciej Hawrot">
+          <span class="prompt-sym" aria-hidden="true">&gt; </span><span id="typed-text" aria-hidden="true">Maciej Hawrot</span><span class="caret" aria-hidden="true"></span>
+        </h1>
+
+        <p class="hero-meta">
+          <span><span class="ok" aria-hidden="true">●</span> open to work · remote or Wrocław, Poland</span>
+          <span>@0xmmhh</span>
+          <span>polish / english / spanish</span>
+        </p>
+
+        <div class="hero-ctas">
+          <a class="btn btn--solid" href="https://github.com/0xmmhh" target="_blank" rel="noreferrer noopener">github <span aria-hidden="true">↗</span></a>
+          <a class="btn" href="https://www.linkedin.com/in/maciejhawrot" target="_blank" rel="noreferrer noopener">linkedin <span aria-hidden="true">↗</span></a>
+          <a class="btn" href="mailto:contact@maciejhawrot.dev">mail <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+    </div>
+
+    <!-- 01 · about -->
+    <section id="about" class="section" aria-labelledby="h-about">
+      <div class="page">
+        <div class="rule">
+          <h2 id="h-about"><span class="hash">##</span> about</h2>
+          <span class="fill" aria-hidden="true"></span>
+          <span class="secno" aria-hidden="true">[ 01/04 ]</span>
+        </div>
+        <section class="tui-frame" aria-label="About me">
+          <span class="fc fc-tl" aria-hidden="true">┌</span><span class="fc fc-tr" aria-hidden="true">┐</span><span class="fc fc-bl" aria-hidden="true">└</span><span class="fc fc-br" aria-hidden="true">┘</span>
+          <span class="tui-frame__title"><span aria-hidden="true">┤</span><span>about.md</span><span aria-hidden="true">├</span></span>
+          <div class="about-grid">
+            <div>
+              <p>I'm a Computer Science student and a Software Engineering Intern at ShipStation Global, building full-stack web apps. My main interest is backend: REST APIs, data processing, and well-structured, maintainable, well-tested code.</p>
+              <p>Day to day it's C# / .NET with ASP.NET Core and EF Core, plus React + TypeScript. Outside work I build developer tools like graftui and run a self-hosted homelab on Proxmox.</p>
+            </div>
+            <dl class="facts">
+              <div class="fact-row fact-row--lead"><dt>currently</dt><dd>Software Engineer Intern @ ShipStation Global</dd></div>
+              <div class="fact-row"><dt>previously</dt><dd>AI Support Specialist @ Safespace · incident triage</dd></div>
+              <div class="fact-row"><dt>education</dt><dd>CS B.Eng. student · networks / systems / security</dd></div>
+            </dl>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- 02 · projects -->
+    <section id="projects" class="section" aria-labelledby="h-projects">
+      <div class="page">
+        <div class="rule">
+          <h2 id="h-projects"><span class="hash">##</span> projects</h2>
+          <span class="fill" aria-hidden="true"></span>
+          <span class="secno" aria-hidden="true">[ 02/04 ]</span>
+        </div>
+
+        <div class="projects-grid">
+          <!-- graftui -->
+          <section class="tui-frame tui-frame--double" aria-label="graftui — featured project">
+            <span class="fc fc-tl" aria-hidden="true">╔</span><span class="fc fc-tr" aria-hidden="true">╗</span><span class="fc fc-bl" aria-hidden="true">╚</span><span class="fc fc-br" aria-hidden="true">╝</span>
+            <span class="tui-frame__title"><span aria-hidden="true">┤</span><span>graftui</span><span aria-hidden="true">├</span></span>
+            <p class="pane-desc">A terminal wrapper around the git CLI: it runs the real git commands and visualizes what each one does to the repo. Safe by default — unsafe merges are refused, conflicts are aborted automatically and operations can be undone.</p>
+
+            <div class="gif-head">
+              <h4>graftui — what it does, visually</h4>
+              <div class="gif-tabs" role="group" aria-label="Choose a demo">
+                <button type="button" class="gif-tab" data-gif="merge" aria-pressed="true">merge</button>
+                <button type="button" class="gif-tab" data-gif="changes" aria-pressed="false">changes</button>
+                <button type="button" class="gif-tab" data-gif="conflict" aria-pressed="false">conflict</button>
+                <button type="button" class="gif-tab" data-gif="undo" aria-pressed="false">undo</button>
+                <button type="button" class="gif-tab" data-gif="switch" aria-pressed="false">switch</button>
+              </div>
+            </div>
+            <img class="demo" id="demo-gif" src="assets/merge.gif" alt="Screen recording of graftui animating a git merge in the terminal" width="800" />
+
+            <div class="hero-ctas" style="margin: 0 0 0.9rem">
+              <a class="btn btn--solid" href="https://graftui.app" target="_blank" rel="noreferrer noopener">graftui.app <span aria-hidden="true">↗</span></a>
+              <a class="btn" href="https://github.com/0xmmhh/graftui" target="_blank" rel="noreferrer noopener">source <span aria-hidden="true">↗</span></a>
+            </div>
+          </section>
+
+          <!-- homelab -->
+          <section class="tui-frame" aria-label="homelab — project">
+            <span class="fc fc-tl" aria-hidden="true">┌</span><span class="fc fc-tr" aria-hidden="true">┐</span><span class="fc fc-bl" aria-hidden="true">└</span><span class="fc fc-br" aria-hidden="true">┘</span>
+            <span class="tui-frame__title"><span aria-hidden="true">┤</span><span>homelab</span><span aria-hidden="true">├</span></span>
+
+            <p class="pane-desc">A small self-hosted setup that I run myself, built around one Proxmox server.</p>
+            <p class="host-line"><span class="a">Proxmox host</span> · each service in its own LXC container (dns, media, git)</p>
+            <ul class="pane-bullets">
+              <li><b>Pi-hole</b> — network-wide DNS and ad blocker
+                <ul>
+                  <li>runs in its own LXC container</li>
+                  <li>Unbound added as the recursive resolver behind it, so names are resolved without a public DNS provider</li>
+                </ul>
+              </li>
+              <li><b>Media stack</b> — Seerr, Radarr, Sonarr, qBittorrent, Jellyfin
+                <ul>
+                  <li>Seerr is where I browse and request movies and series</li>
+                  <li>Radarr and Sonarr manage the library behind it, qBittorrent handles the downloads</li>
+                  <li>Jellyfin streams the library to my devices</li>
+                </ul>
+              </li>
+              <li><b>Gitea</b> — self-hosted git
+                <ul>
+                  <li>hosts the repository of my engineering thesis</li>
+                  <li>the thesis is written as code in Typst</li>
+                </ul>
+              </li>
+            </ul>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 · skills -->
+    <section id="skills" class="section" aria-labelledby="h-skills">
+      <div class="page">
+        <div class="rule">
+          <h2 id="h-skills"><span class="hash">##</span> skills</h2>
+          <span class="fill" aria-hidden="true"></span>
+          <span class="secno" aria-hidden="true">[ 03/04 ]</span>
+        </div>
+
+        <section class="tui-frame" aria-label="Skills">
+          <span class="fc fc-tl" aria-hidden="true">┌</span><span class="fc fc-tr" aria-hidden="true">┐</span><span class="fc fc-bl" aria-hidden="true">└</span><span class="fc fc-br" aria-hidden="true">┘</span>
+          <span class="tui-frame__title"><span aria-hidden="true">┤</span><span>stack</span><span aria-hidden="true">├</span></span>
+          <dl class="facts skills-rows">
+            <div class="fact-row"><dt>backend</dt><dd class="chip-row"><span class="chip">C#</span><span class="chip">.NET</span><span class="chip">ASP.NET Core</span><span class="chip">REST APIs / HTTP</span><span class="chip">EF Core</span><span class="chip">PostgreSQL</span><span class="chip">unit testing (C#)</span></dd></div>
+            <div class="fact-row"><dt>frontend</dt><dd class="chip-row"><span class="chip">React</span><span class="chip">TypeScript</span><span class="chip">HTML / CSS</span></dd></div>
+            <div class="fact-row"><dt>tooling</dt><dd class="chip-row"><span class="chip">git / GitHub</span><span class="chip">CI/CD (GitHub Actions)</span><span class="chip">Docker / Compose</span><span class="chip">Linux shell</span><span class="chip">Proxmox</span></dd></div>
+            <div class="fact-row"><dt>languages</dt><dd class="chip-row"><span class="chip">Polish — native</span><span class="chip">English — B2/C1</span><span class="chip">Spanish — B1</span></dd></div>
+          </dl>
+        </section>
+      </div>
+    </section>
+
+    <!-- 04 · contact -->
+    <section id="contact" class="section" aria-labelledby="h-contact">
+      <div class="page">
+        <div class="rule">
+          <h2 id="h-contact"><span class="hash">##</span> contact</h2>
+          <span class="fill" aria-hidden="true"></span>
+          <span class="secno" aria-hidden="true">[ 04/04 ]</span>
+        </div>
+
+        <section class="tui-frame" aria-label="Contact">
+          <span class="fc fc-tl" aria-hidden="true">┌</span><span class="fc fc-tr" aria-hidden="true">┐</span><span class="fc fc-bl" aria-hidden="true">└</span><span class="fc fc-br" aria-hidden="true">┘</span>
+          <span class="tui-frame__title"><span aria-hidden="true">┤</span><span>contact.sh</span><span aria-hidden="true">├</span></span>
+          <div class="split">
+            <div>
+              <p class="pane-tagline" style="margin-bottom: 0.4rem">$ mail</p>
+              <span class="big-mail">contact@maciejhawrot.dev</span>
+              <div class="btn-row">
+                <a class="btn btn--solid" href="mailto:contact@maciejhawrot.dev">write me <span aria-hidden="true">↗</span></a>
+                <button type="button" class="btn" id="copy-btn" aria-live="polite" aria-label="Copy email address to clipboard">copy address</button>
+              </div>
+            </div>
+            <div class="link-stack">
+              <a href="https://github.com/0xmmhh" target="_blank" rel="noreferrer noopener"><span aria-hidden="true">→</span> github.com/0xmmhh<span class="arrow" aria-hidden="true">↗</span></a>
+              <a href="https://www.linkedin.com/in/maciejhawrot" target="_blank" rel="noreferrer noopener"><span aria-hidden="true">→</span> linkedin.com/in/maciejhawrot<span class="arrow" aria-hidden="true">↗</span></a>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <!-- status bar -->
+  <footer class="statusbar">
+    <div class="statusbar-inner">
+      <span class="sb-seg">~/dev/portfolio</span>
+      <span class="sb-seg"><span class="sb-sep" aria-hidden="true">│</span> main <span class="sb-sep" aria-hidden="true">│</span> ✓ clean <span class="sb-sep" aria-hidden="true">│</span> utf-8 · lf · © 2026 Maciej Hawrot</span>
+      <button type="button" class="to-top sb-seg" id="to-top">[^] top</button>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      var root = document.documentElement;
+
+      /* ── section rules: fill with box-drawing characters ───────── */
+      document.querySelectorAll(".fill").forEach(function (el) {
+        el.textContent = "─".repeat(200);
+      });
+
+      /* ── themes ─────────────────────────────────────────────────── */
+      var themeBtn = document.getElementById("theme-btn");
+      var segs = themeBtn.querySelectorAll(".seg");
+
+      function setTheme(t) {
+        root.dataset.theme = t;
+        segs.forEach(function (seg) { seg.classList.toggle("on", seg.dataset.seg === t); });
+        themeBtn.setAttribute("aria-label", t === "paper" ? "Switch to dark theme" : "Switch to light theme");
+        try { localStorage.setItem("0xmmhh-theme", t); } catch (e) {}
+      }
+      function cycleTheme() {
+        setTheme(root.dataset.theme === "paper" ? "ivory" : "paper");
+      }
+      setTheme(root.dataset.theme === "paper" ? "paper" : "ivory");
+      themeBtn.addEventListener("click", cycleTheme);
+
+      /* ── sections: hotkeys + active tab ─────────────────────────── */
+      var SECTIONS = [
+        { id: "about", keys: ["1", "a"] },
+        { id: "projects", keys: ["2", "p"] },
+        { id: "skills", keys: ["3", "s"] },
+        { id: "contact", keys: ["4", "c"] }
+      ];
+      var tabs = document.querySelectorAll(".tab");
+
+      function setActive(id) {
+        tabs.forEach(function (tab) {
+          if (tab.dataset.section === id) tab.setAttribute("aria-current", "true");
+          else tab.removeAttribute("aria-current");
+        });
+      }
+
+      window.addEventListener("keydown", function (e) {
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        var t = e.target;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+        var key = e.key.toLowerCase();
+        if (key === "t") { e.preventDefault(); cycleTheme(); return; }
+        var section = SECTIONS.find(function (s) { return s.keys.indexOf(key) !== -1; });
+        if (section) {
+          e.preventDefault();
+          var el = document.getElementById(section.id);
+          if (el) el.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+          setActive(section.id);
+        }
+      });
+
+      tabs.forEach(function (tab) {
+        tab.addEventListener("click", function () { setActive(tab.dataset.section); });
+      });
+
+      if ("IntersectionObserver" in window) {
+        var io = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) setActive(entry.target.id);
+          });
+        }, { rootMargin: "-30% 0px -60% 0px" });
+        SECTIONS.forEach(function (s) {
+          var el = document.getElementById(s.id);
+          if (el) io.observe(el);
+        });
+      }
+
+      /* ── typed name (Esc skips the animation) ──────────────────── */
+      var typedText = document.getElementById("typed-text");
+      var fullText = typedText.textContent;
+
+      if (!reduced) {
+        var n = 0;
+        typedText.textContent = "";
+        var timer = setInterval(function () {
+          n += 1;
+          typedText.textContent = fullText.slice(0, n);
+          if (n >= fullText.length) finish();
+        }, 120);
+        var finish = function () {
+          clearInterval(timer);
+          typedText.textContent = fullText;
+          window.removeEventListener("keydown", onEsc);
+        };
+        var onEsc = function (e) { if (e.key === "Escape") finish(); };
+        window.addEventListener("keydown", onEsc);
+      }
+
+      /* ── graftui demo gifs (only the clicked one is downloaded) ─── */
+      var CAPTIONS = {
+        merge: "graftui — an animated merge",
+        changes: "graftui — staging and committing changes",
+        conflict: "graftui — a merge conflict, aborted safely",
+        undo: "graftui — multi-step undo",
+        switch: "graftui — switching branches"
+      };
+      var demo = document.getElementById("demo-gif");
+      document.querySelectorAll(".gif-tab").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var name = btn.dataset.gif;
+          demo.src = "assets/" + name + ".gif";
+          demo.alt = "Screen recording: " + CAPTIONS[name];
+          document.querySelectorAll(".gif-tab").forEach(function (b) {
+            b.setAttribute("aria-pressed", String(b === btn));
+          });
+        });
+      });
+
+      /* ── copy e-mail ────────────────────────────────────────────── */
+      var copyBtn = document.getElementById("copy-btn");
+      var EMAIL = "contact@maciejhawrot.dev";
+      copyBtn.addEventListener("click", function () {
+        function done() {
+          copyBtn.textContent = "copied ✓";
+          copyBtn.setAttribute("aria-label", "Email address copied");
+          setTimeout(function () {
+            copyBtn.textContent = "copy address";
+            copyBtn.setAttribute("aria-label", "Copy email address to clipboard");
+          }, 1800);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(EMAIL).then(done, fallback);
+        } else {
+          fallback();
+        }
+        function fallback() {
+          var ta = document.createElement("textarea");
+          ta.value = EMAIL;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          ta.remove();
+          done();
+        }
+      });
+
+      /* ── back to top ────────────────────────────────────────────── */
+      document.getElementById("to-top").addEventListener("click", function () {
+        window.scrollTo({ top: 0, behavior: reduced ? "auto" : "smooth" });
+      });
+    })();
+  </script>
+</body>
+</html>
